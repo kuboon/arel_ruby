@@ -131,9 +131,13 @@ module Arel
       end
 
       def visit_Arel_Nodes_Grouping o
-        # doubtful implementation
         v = visit o.expr
-        ProcWithSource.new("select {|g| g.#{v.to_source}}") { |collection| collection.select {|obj| v.call(obj) } }
+        case o.expr
+        when Arel::Nodes::Grouping, Arel::Nodes::And, Arel::Nodes::Or
+          v
+        else
+          ProcWithSource.new("select {|g| g.#{v.to_source}}") { |collection| collection.select {|obj| v.call(obj) } }
+        end
       end
 
 #       def visit_Arel_Nodes_Ascending o
@@ -176,17 +180,25 @@ module Arel
         ProcWithSource.new("#{l}.in? #{r.inspect}") { |o| o.send(l).in?(r) }
       end
 
-#       def visit_Arel_Nodes_GreaterThanOrEqual o
-#       end
+      def visit_Arel_Nodes_GreaterThanOrEqual o
+        l, r =  visit(o.left), visit(o.right)
+        ProcWithSource.new("#{l} >= #{r.inspect}") { |o| o.send(l) >= r }
+      end
 
-#       def visit_Arel_Nodes_GreaterThan o
-#       end
+      def visit_Arel_Nodes_GreaterThan o
+        l, r =  visit(o.left), visit(o.right)
+        ProcWithSource.new("#{l} > #{r.inspect}") { |o| o.send(l) > r }
+      end
 
-#       def visit_Arel_Nodes_LessThanOrEqual o
-#       end
+      def visit_Arel_Nodes_LessThanOrEqual o
+        l, r =  visit(o.left), visit(o.right)
+        ProcWithSource.new("#{l} <= #{r.inspect}") { |o| o.send(l) <= r }
+      end
 
-#       def visit_Arel_Nodes_LessThan o
-#       end
+      def visit_Arel_Nodes_LessThan o
+        l, r =  visit(o.left), visit(o.right)
+        ProcWithSource.new("#{l} < #{r.inspect}") { |o| o.send(l) < r }
+      end
 
       def visit_Arel_Nodes_Matches o
         l, r =  visit(o.left), Regexp.escape(visit(o.right)).gsub(/[%_]/, { '%' => '.*', '_' => '.' })
@@ -245,8 +257,10 @@ module Arel
         o.children.map { |x| ProcWithSource.new("select {|o| o.#{visit(x).to_source}}") { |collection| collection.select {|obj| visit(x).call(obj) } } }
       end
 
-#       def visit_Arel_Nodes_Or o
-#       end
+      def visit_Arel_Nodes_Or o
+        l, r =  visit(o.left), visit(o.right)
+        ProcWithSource.new("select {|o| o.#{l.to_source} || o.#{r.to_source}}") { |collection| collection.select {|obj| l.call(obj) || r.call(obj) } }
+      end
 
 #       def visit_Arel_Nodes_Assignment o
 #       end
