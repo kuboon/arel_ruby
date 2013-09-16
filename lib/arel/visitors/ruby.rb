@@ -188,11 +188,16 @@ module Arel
 #       def visit_Arel_Nodes_LessThan o
 #       end
 
-#       def visit_Arel_Nodes_Matches o
-#       end
+      def visit_Arel_Nodes_Matches o
+        l, r =  visit(o.left), Regexp.escape(visit(o.right)).gsub(/[%_]/, { '%' => '.*', '_' => '.' })
+        ProcWithSource.new("#{l}.match(#{r.inspect})") { |o| o.send(l).match(r) }
+      end
 
-#       def visit_Arel_Nodes_DoesNotMatch o
-#       end
+      def visit_Arel_Nodes_DoesNotMatch o
+        l, r =  visit(o.left), Regexp.escape(visit(o.right)).gsub(/[%_]/, { '%' => '.*', '_' => '.' })
+          # FIXME: 'not_match' does not actually exist
+        ProcWithSource.new("#{l}.not_match(#{r.inspect})") { |o| !o.send(l).match(r) }
+      end
 
       def visit_Arel_Nodes_JoinSource o
         # do nothing
