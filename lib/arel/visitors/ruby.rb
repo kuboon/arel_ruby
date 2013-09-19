@@ -58,7 +58,7 @@ module Arel
         order.split(',').map(&:strip).map do |o|
           attr, direction = o.split(/\s+/)
           v = visit attr
-          ProcWithSource.new("sort_by(&:#{v})#{'.reverse' if direction == 'desc'}") do |collection|
+          ProcWithSourceForEnumerable.new("sort_by(&:#{v})#{'.reverse' if direction == 'desc'}") do |collection|
             col = collection.sort_by {|c| c.send v}
             col.reverse! if direction == 'desc'
             col
@@ -122,22 +122,17 @@ module Arel
 
       def visit_Arel_Nodes_Offset o
         v = visit o.expr
-        ProcWithSource.new("from(#{v})") {|collection| collection.from(v) }
+        ProcWithSourceForEnumerable.new("from(#{v})") {|collection| collection.from(v) }
       end
 
       def visit_Arel_Nodes_Limit o
         v = visit o.expr
-        ProcWithSource.new("take(#{v})") {|collection| collection.take(v) }
+        ProcWithSourceForEnumerable.new("take(#{v})") {|collection| collection.take(v) }
       end
 
       def visit_Arel_Nodes_Grouping o
-        v = visit o.expr
-        case o.expr
-        when Arel::Nodes::Grouping, Arel::Nodes::And, Arel::Nodes::Or
-          v
-        else
-          ProcWithSource.new("select {|g| g.#{v.to_source}}") { |collection| collection.select {|obj| v.call(obj) } }
-        end
+        v = visit(o.expr)
+        v.to_proc_with_source_for_enumerable
       end
 
 #       def visit_Arel_Nodes_Ascending o
@@ -148,7 +143,7 @@ module Arel
 
       def visit_Arel_Nodes_Group o
         v = visit o.expr
-        ProcWithSource.new("group_by {|g| g.#{v} }") {|collection| collection.group_by {|g| g.send v } }
+        ProcWithSourceForEnumerable.new("group_by {|g| g.#{v} }") {|collection| collection.group_by {|g| g.send v } }
       end
 
 #       def visit_Arel_Nodes_NamedFunction o
@@ -177,38 +172,38 @@ module Arel
 
       def visit_Arel_Nodes_Between o
         l, r =  visit(o.left), Range.new(o.right.children.first, o.right.children.last)
-        ProcWithSource.new("#{l}.in? #{r.inspect}") { |o| o.send(l).in?(r) }
+        ProcWithSourceForCondition.new("#{l}.in? #{r.inspect}") { |o| o.send(l).in?(r) }
       end
 
       def visit_Arel_Nodes_GreaterThanOrEqual o
         l, r =  visit(o.left), visit(o.right)
-        ProcWithSource.new("#{l} >= #{r.inspect}") { |o| o.send(l) >= r }
+        ProcWithSourceForCondition.new("#{l} >= #{r.inspect}") { |o| o.send(l) >= r }
       end
 
       def visit_Arel_Nodes_GreaterThan o
         l, r =  visit(o.left), visit(o.right)
-        ProcWithSource.new("#{l} > #{r.inspect}") { |o| o.send(l) > r }
+        ProcWithSourceForCondition.new("#{l} > #{r.inspect}") { |o| o.send(l) > r }
       end
 
       def visit_Arel_Nodes_LessThanOrEqual o
         l, r =  visit(o.left), visit(o.right)
-        ProcWithSource.new("#{l} <= #{r.inspect}") { |o| o.send(l) <= r }
+        ProcWithSourceForCondition.new("#{l} <= #{r.inspect}") { |o| o.send(l) <= r }
       end
 
       def visit_Arel_Nodes_LessThan o
         l, r =  visit(o.left), visit(o.right)
-        ProcWithSource.new("#{l} < #{r.inspect}") { |o| o.send(l) < r }
+        ProcWithSourceForCondition.new("#{l} < #{r.inspect}") { |o| o.send(l) < r }
       end
 
       def visit_Arel_Nodes_Matches o
         l, r =  visit(o.left), Regexp.escape(visit(o.right)).gsub(/[%_]/, { '%' => '.*', '_' => '.' })
-        ProcWithSource.new("#{l}.match(#{r.inspect})") { |o| o.send(l).match(r) }
+        ProcWithSourceForCondition.new("#{l}.match(#{r.inspect})") { |o| o.send(l).match(r) }
       end
 
       def visit_Arel_Nodes_DoesNotMatch o
         l, r =  visit(o.left), Regexp.escape(visit(o.right)).gsub(/[%_]/, { '%' => '.*', '_' => '.' })
           # FIXME: 'not_match' does not actually exist
-        ProcWithSource.new("#{l}.not_match(#{r.inspect})") { |o| !o.send(l).match(r) }
+        ProcWithSourceForCondition.new("#{l}.not_match(#{r.inspect})") { |o| !o.send(l).match(r) }
       end
 
       def visit_Arel_Nodes_JoinSource o
@@ -233,7 +228,7 @@ module Arel
           c = o.expr
           l, r =  visit(c.left), Range.new(c.right.children.first, c.right.children.last)
           # FIXME: 'not_in?' does not actually exist
-          ProcWithSource.new("#{l}.not_in? #{r.inspect}") { |o| !o.send(l).in?(r) }
+          ProcWithSourceForCondition.new("#{l}.not_in? #{r.inspect}") { |o| !o.send(l).in?(r) }
         else
           raise NotImplementedError, 'general Arel::Nodes::Not not implemented'
         end
@@ -244,22 +239,30 @@ module Arel
 
       def visit_Arel_Nodes_In o
         l, r =  visit(o.left), visit(o.right)
-        ProcWithSource.new("#{l}.in? #{r.inspect}") { |o| o.send(l).in?(r) }
+        ProcWithSourceForCondition.new("#{l}.in? #{r.inspect}") { |o| o.send(l).in?(r) }
       end
 
       def visit_Arel_Nodes_NotIn o
         l, r =  visit(o.left), visit(o.right)
         # FIXME: 'not_in?' does not actually exist
-        ProcWithSource.new("#{l}.not_in? #{r.inspect}") { |o| !o.send(l).in?(r) }
+        ProcWithSourceForCondition.new("#{l}.not_in? #{r.inspect}") { |o| !o.send(l).in?(r) }
       end
 
       def visit_Arel_Nodes_And o
-        o.children.map { |x| ProcWithSource.new("select {|o| o.#{visit(x).to_source}}") { |collection| collection.select {|obj| visit(x).call(obj) } } }
+        procs = o.children.map { |x| visit(x).to_proc_with_source_for_enumerable }
+        ProcWithSourceForEnumerable.new(procs.map(&:to_source).join('.')) { |collection| procs.inject(collection) { |result, lmd| lmd.call result } }
       end
 
       def visit_Arel_Nodes_Or o
         l, r =  visit(o.left), visit(o.right)
-        ProcWithSource.new("select {|o| o.#{l.to_source} || o.#{r.to_source}}") { |collection| collection.select {|obj| l.call(obj) || r.call(obj) } }
+        if l.is_a?(ProcWithSourceForCondition) && r.is_a?(ProcWithSourceForCondition)
+          ProcWithSourceForEnumerable.new("select {|o| o.#{l.to_source} || o.#{r.to_source}}") { |collection| collection.select {|obj| l.call(obj) || r.call(obj) } }
+        elsif l.is_a?(ProcWithSourceForEnumerable) && r.is_a?(ProcWithSourceForEnumerable)
+          # FIXME: invalid source
+          ProcWithSourceForEnumerable.new("(#{l.to_source}} | #{r.to_source}})") { |collection| l.call(collection) | r.call(collection) }
+        else
+          raise NotImplementedError, "Mixed Arel::Nodes::Or not implemented (#{l.class} OR #{r.class})"
+        end
       end
 
 #       def visit_Arel_Nodes_Assignment o
@@ -267,12 +270,12 @@ module Arel
 
       def visit_Arel_Nodes_Equality o
         l, r =  visit(o.left), visit(o.right)
-        ProcWithSource.new("#{l} == #{r.inspect}") { |o| o.send(l) == r }
+        ProcWithSourceForCondition.new("#{l} == #{r.inspect}") { |o| o.send(l) == r }
       end
 
       def visit_Arel_Nodes_NotEqual o
         l, r =  visit(o.left), visit(o.right)
-        ProcWithSource.new("#{l} != #{r.inspect}") { |o| o.send(l) != r }
+        ProcWithSourceForCondition.new("#{l} != #{r.inspect}") { |o| o.send(l) != r }
       end
 
 #       def visit_Arel_Nodes_As o
@@ -348,6 +351,18 @@ module Arel
 
       def to_source
         @source
+      end
+    end
+
+    class ProcWithSourceForCondition < ProcWithSource
+      def to_proc_with_source_for_enumerable
+        ProcWithSourceForEnumerable.new("select {|o| o.#{self.to_source}}") { |collection| collection.select {|obj| self.call(obj) } }
+      end
+    end
+
+    class ProcWithSourceForEnumerable < ProcWithSource
+      def to_proc_with_source_for_enumerable
+        self
       end
     end
 
