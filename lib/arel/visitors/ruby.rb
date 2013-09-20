@@ -1,5 +1,6 @@
 require 'bigdecimal'
 require 'date'
+require 'active_support/all'
 
 module Arel
   module Visitors
@@ -172,7 +173,8 @@ module Arel
 
       def visit_Arel_Nodes_Between o
         l, r =  visit(o.left), Range.new(o.right.children.first, o.right.children.last)
-        ProcWithSourceForCondition.new("#{l}.in? #{r.inspect}") { |o| o.send(l).in?(r) }
+        # FIXME: source does not correspond to proc
+        ProcWithSourceForCondition.new("#{l}.in? #{r.inspect}") { |o| r.cover?(o.send(l)) }
       end
 
       def visit_Arel_Nodes_GreaterThanOrEqual o
@@ -202,7 +204,7 @@ module Arel
 
       def visit_Arel_Nodes_DoesNotMatch o
         l, r =  visit(o.left), Regexp.escape(visit(o.right)).gsub(/[%_]/, { '%' => '.*', '_' => '.' })
-          # FIXME: 'not_match' does not actually exist
+        # FIXME: 'not_match' does not actually exist
         ProcWithSourceForCondition.new("#{l}.not_match(#{r.inspect})") { |o| !o.send(l).match(r) }
       end
 
